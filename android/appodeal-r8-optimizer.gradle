@@ -36,17 +36,17 @@ abstract class AppodealR8ConsumerRulesTransform
     @PathSensitive(PathSensitivity.NAME_ONLY)
     abstract Provider<FileSystemLocation> getInputArtifact()
 
-    private static boolean isConsumerRulesEntry(String name) {
+    protected boolean isConsumerRulesEntry(String name) {
         return name == 'proguard.txt' ||
                 name == 'consumer-rules.pro' ||
                 name.startsWith('META-INF/proguard/')
     }
 
-    private static String normalized(String line) {
+    protected String normalized(String line) {
         return line.trim().replaceAll(/\s+/, ' ')
     }
 
-    private static String patchRules(String original) {
+    protected String patchRules(String original) {
         def patched = []
         original.readLines().each { line ->
             def rule = normalized(line)
