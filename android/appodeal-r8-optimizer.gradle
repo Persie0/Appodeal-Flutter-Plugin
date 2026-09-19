@@ -1,0 +1,152 @@
+import org.gradle.api.artifacts.transform.CacheableTransform
+import org.gradle.api.artifacts.transform.InputArtifact
+import org.gradle.api.artifacts.transform.TransformAction
+import org.gradle.api.artifacts.transform.TransformOutputs
+import org.gradle.api.artifacts.transform.TransformParameters
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+import org.gradle.api.attributes.Attribute
+import org.gradle.api.file.FileSystemLocation
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+
+import java.nio.charset.StandardCharsets
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+
+/**
+ * Experimental adapter-preserving R8 optimization for the Persie0 fork.
+ *
+ * This does not remove any dependency or mediation adapter. It rewrites one
+ * obsolete blanket consumer rule shipped by the Vungle mediation adapters:
+ *
+ *   -keep class com.google.android.gms.** { *; }
+ *
+ * Modern Google Play services artifacts carry their own targeted consumer
+ * rules. Keeping every Google Play services class/member prevents R8 from
+ * shrinking, optimizing and obfuscating a large unrelated code surface.
+ *
+ * The rewrite is intentionally limited to the Vungle adapter AARs from
+ * Appodeal, BidMachine and Bidon. The Vungle SDK's own keep rules are left
+ * untouched.
+ *
+ * Disable with:
+ *   -Pappodeal.r8OptimizedConsumerRules=false
+ */
+@CacheableTransform
+abstract class AppodealR8ConsumerRulesTransform
+        implements TransformAction<TransformParameters.None> {
+
+    @InputArtifact
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract Provider<FileSystemLocation> getInputArtifact()
+
+    static boolean isConsumerRulesEntry(String name) {
+        return name == 'proguard.txt' ||
+                name == 'consumer-rules.pro' ||
+                name.startsWith('META-INF/proguard/')
+    }
+
+    static boolean isVungleRelatedArtifact(File input) {
+        return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle')
+    }
+
+    static String normalized(String line) {
+        return line.trim().replaceAll(/\\s+/, ' ')
+    }
+
+    static String patchRules(String original) {
+        boolean containsVungleRules = original.contains('com.vungle.ads')
+        def patched = []
+        original.readLines().each { line ->
+            def rule = AppodealR8ConsumerRulesTransform.normalized(line)
+
+            if (containsVungleRules &&
+                    (rule == '-keep class com.google.android.gms.** { *; }' ||
+                     rule == '-keep class com.google.android.gms.** {*;}')) {
+                patched << '# Appodeal Flutter fork: removed legacy Vungle blanket Google Play services keep'
+                return
+            }
+
+            patched << line
+        }
+        return patched.join(System.lineSeparator()) + System.lineSeparator()
+    }
+
+    @Override
+    void transform(TransformOutputs outputs) {
+        File input = inputArtifact.get().asFile
+        File output = outputs.file(input.name)
+
+        if (!input.name.endsWith('.aar') ||
+                !AppodealR8ConsumerRulesTransform.isVungleRelatedArtifact(input)) {
+            output.bytes = input.bytes
+            return
+        }
+
+        new ZipFile(input).withCloseable { zip ->
+            new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(output))).withCloseable { out ->
+                zip.entries().each { entry ->
+                    def next = new ZipEntry(entry.name)
+                    if (entry.time >= 0) {
+                        next.time = entry.time
+                    }
+                    out.putNextEntry(next)
+                    if (!entry.isDirectory()) {
+                        byte[] bytes = zip.getInputStream(entry).bytes
+                        if (AppodealR8ConsumerRulesTransform.isConsumerRulesEntry(entry.name)) {
+                            String text = new String(bytes, StandardCharsets.UTF_8)
+                            bytes = AppodealR8ConsumerRulesTransform.patchRules(text)
+                                    .getBytes(StandardCharsets.UTF_8)
+                        }
+                        out.write(bytes)
+                    }
+                    out.closeEntry()
+                }
+            }
+        }
+    }
+}
+
+def appodealR8RulesEnabled = providers
+        .gradleProperty('appodeal.r8OptimizedConsumerRules')
+        .map { it.toBoolean() }
+        .orElse(true)
+        .get()
+
+if (appodealR8RulesEnabled) {
+    def artifactType = ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE
+    def optimizedRules = Attribute.of(
+            'com.appodeal.flutter.r8-optimized-consumer-rules',
+            Boolean
+    )
+
+    dependencies {
+        attributesSchema {
+            attribute(optimizedRules)
+        }
+
+        artifactTypes {
+            maybeCreate('aar').attributes.attribute(optimizedRules, false)
+        }
+
+        registerTransform(AppodealR8ConsumerRulesTransform) {
+            from.attribute(artifactType, 'aar')
+                    .attribute(optimizedRules, false)
+            to.attribute(artifactType, 'aar')
+                    .attribute(optimizedRules, true)
+        }
+    }
+
+    // AGP derives compile/runtime artifacts and consumer rules from resolvable
+    // configurations. Requesting the extra attribute makes Gradle feed AGP the
+    // patched AAR while preserving the module metadata and transitive graph.
+    configurations.configureEach { configuration ->
+        if (configuration.canBeResolved) {
+            configuration.attributes.attribute(optimizedRules, true)
+        }
+    }
+
+    logger.lifecycle('[Appodeal Flutter] Adapter-preserving R8 consumer-rule optimization enabled')
+}

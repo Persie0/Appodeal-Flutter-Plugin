@@ -66,3 +66,21 @@ dependencies {
     implementation 'com.appodeal.ads.sdk:core:4.3.0'
     implementation 'com.appodeal.ads.sdk.adapters:iab:1.8.1.0'
 }
+
+
+// Persie0 fork: apply adapter-preserving R8 optimization to the host Android app.
+// The script is applied in the application project because Gradle artifact transforms
+// must be registered on the project whose dependency configurations are resolved.
+//
+// Capture this plugin project's directory before entering rootProject/subproject
+// closures. Using project.projectDir inside those closures is delegate-sensitive and
+// can otherwise resolve relative to the host :app project.
+def appodealFlutterAndroidDir = project.projectDir
+rootProject.subprojects { candidate ->
+    candidate.plugins.withId('com.android.application') {
+        if (!candidate.extensions.extraProperties.has('appodealR8OptimizerApplied')) {
+            candidate.extensions.extraProperties.set('appodealR8OptimizerApplied', true)
+            candidate.apply from: new File(appodealFlutterAndroidDir, 'appodeal-r8-optimizer.gradle')
+        }
+    }
+}
