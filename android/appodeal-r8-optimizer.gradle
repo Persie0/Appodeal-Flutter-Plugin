@@ -48,11 +48,8 @@ abstract class AppodealR8ConsumerRulesTransform
                 name.startsWith('META-INF/proguard/')
     }
 
-    static boolean isVungleMediationAdapter(File input) {
-        String path = input.absolutePath.replace('\\\\', '/')
-        return path.contains('/com.appodeal.ads.sdk.adapters/vungle/') ||
-                path.contains('/io.bidmachine/ads.networks.vungle/') ||
-                path.contains('/org.bidon/vungle-adapter/')
+    static boolean isVungleRelatedArtifact(File input) {
+        return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle')
     }
 
     static String normalized(String line) {
@@ -60,12 +57,14 @@ abstract class AppodealR8ConsumerRulesTransform
     }
 
     static String patchRules(String original) {
+        boolean containsVungleRules = original.contains('com.vungle.ads')
         def patched = []
         original.readLines().each { line ->
             def rule = AppodealR8ConsumerRulesTransform.normalized(line)
 
-            if (rule == '-keep class com.google.android.gms.** { *; }' ||
-                    rule == '-keep class com.google.android.gms.** {*;}') {
+            if (containsVungleRules &&
+                    (rule == '-keep class com.google.android.gms.** { *; }' ||
+                     rule == '-keep class com.google.android.gms.** {*;}')) {
                 patched << '# Appodeal Flutter fork: removed legacy Vungle blanket Google Play services keep'
                 return
             }
@@ -81,7 +80,7 @@ abstract class AppodealR8ConsumerRulesTransform
         File output = outputs.file(input.name)
 
         if (!input.name.endsWith('.aar') ||
-                !AppodealR8ConsumerRulesTransform.isVungleMediationAdapter(input)) {
+                !AppodealR8ConsumerRulesTransform.isVungleRelatedArtifact(input)) {
             output.bytes = input.bytes
             return
         }
