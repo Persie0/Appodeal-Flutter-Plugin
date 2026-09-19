@@ -18,12 +18,18 @@ import java.util.zip.ZipOutputStream
 /**
  * Experimental adapter-preserving R8 optimization for the Persie0 fork.
  *
- * This does not remove any dependency or mediation adapter. It only rewrites
- * two demonstrably over-broad consumer rules while Gradle resolves AARs:
+ * This does not remove any dependency or mediation adapter. It rewrites one
+ * obsolete blanket consumer rule shipped by the Vungle mediation adapters:
  *
- *  1. Mintegral: keep every class name (safe for Class.forName), but let R8
- *     optimize and remove unused members. Member names that remain are kept.
- *  2. BidMachine protobuf: keep every class/member, but allow obfuscation.
+ *   -keep class com.google.android.gms.** { *; }
+ *
+ * Modern Google Play services artifacts carry their own targeted consumer
+ * rules. Keeping every Google Play services class/member prevents R8 from
+ * shrinking, optimizing and obfuscating a large unrelated code surface.
+ *
+ * The rewrite is intentionally limited to the Vungle adapter AARs from
+ * Appodeal, BidMachine and Bidon. The Vungle SDK's own keep rules are left
+ * untouched.
  *
  * Disable with:
  *   -Pappodeal.r8OptimizedConsumerRules=false
@@ -36,46 +42,31 @@ abstract class AppodealR8ConsumerRulesTransform
     @PathSensitive(PathSensitivity.NAME_ONLY)
     abstract Provider<FileSystemLocation> getInputArtifact()
 
-    protected boolean isConsumerRulesEntry(String name) {
+    static boolean isConsumerRulesEntry(String name) {
         return name == 'proguard.txt' ||
                 name == 'consumer-rules.pro' ||
                 name.startsWith('META-INF/proguard/')
     }
 
-    protected String normalized(String line) {
-        return line.trim().replaceAll(/\s+/, ' ')
+    static boolean isVungleMediationAdapter(File input) {
+        String path = input.absolutePath.replace('\\\\', '/')
+        return path.contains('/com.appodeal.ads.sdk.adapters/vungle/') ||
+                path.contains('/io.bidmachine/ads.networks.vungle/') ||
+                path.contains('/org.bidon/vungle-adapter/')
     }
 
-    protected String patchRules(String original) {
+    static String normalized(String line) {
+        return line.trim().replaceAll(/\\s+/, ' ')
+    }
+
+    static String patchRules(String original) {
         def patched = []
         original.readLines().each { line ->
-            def rule = normalized(line)
+            def rule = AppodealR8ConsumerRulesTransform.normalized(line)
 
-            // Mintegral publishes this blanket rule through multiple mediation
-            // adapters. Preserve all class identities, but do not pin every
-            // field/method against optimization and shrinking.
-            if (rule == '-keep class com.mbridge.** {*;}' ||
-                    rule == '-keep class com.mbridge.** { *; }') {
-                patched << '# Appodeal Flutter fork: narrowed Mintegral blanket keep rule'
-                patched << '-keep,allowoptimization class com.mbridge.**'
-                patched << '-keepclassmembernames,allowoptimization class com.mbridge.** { *; }'
-                return
-            }
-
-            // The interface rule is fully subsumed by the original class-wide
-            // rule. Keeping it would re-pin interface members after narrowing.
-            if (rule == '-keep interface com.mbridge.** {*;}' ||
-                    rule == '-keep interface com.mbridge.** { *; }') {
-                patched << '# Appodeal Flutter fork: interface members covered by narrowed Mintegral rules above'
-                return
-            }
-
-            // Generated protobuf code is still retained exactly as before.
-            // R8 may only rename it; references are rewritten consistently.
-            if (rule == '-keep class io.bidmachine.protobuf.** { *; }' ||
-                    rule == '-keep class io.bidmachine.protobuf.** {*;}') {
-                patched << '# Appodeal Flutter fork: BidMachine protobuf may be obfuscated'
-                patched << '-keep,allowobfuscation class io.bidmachine.protobuf.** { *; }'
+            if (rule == '-keep class com.google.android.gms.** { *; }' ||
+                    rule == '-keep class com.google.android.gms.** {*;}') {
+                patched << '# Appodeal Flutter fork: removed legacy Vungle blanket Google Play services keep'
                 return
             }
 
@@ -89,7 +80,8 @@ abstract class AppodealR8ConsumerRulesTransform
         File input = inputArtifact.get().asFile
         File output = outputs.file(input.name)
 
-        if (!input.name.endsWith('.aar')) {
+        if (!input.name.endsWith('.aar') ||
+                !AppodealR8ConsumerRulesTransform.isVungleMediationAdapter(input)) {
             output.bytes = input.bytes
             return
         }
@@ -104,9 +96,10 @@ abstract class AppodealR8ConsumerRulesTransform
                     out.putNextEntry(next)
                     if (!entry.isDirectory()) {
                         byte[] bytes = zip.getInputStream(entry).bytes
-                        if (isConsumerRulesEntry(entry.name)) {
+                        if (AppodealR8ConsumerRulesTransform.isConsumerRulesEntry(entry.name)) {
                             String text = new String(bytes, StandardCharsets.UTF_8)
-                            bytes = patchRules(text).getBytes(StandardCharsets.UTF_8)
+                            bytes = AppodealR8ConsumerRulesTransform.patchRules(text)
+                                    .getBytes(StandardCharsets.UTF_8)
                         }
                         out.write(bytes)
                     }
