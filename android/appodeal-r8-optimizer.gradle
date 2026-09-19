@@ -1,0 +1,160 @@
+import org.gradle.api.artifacts.transform.CacheableTransform
+import org.gradle.api.artifacts.transform.InputArtifact
+import org.gradle.api.artifacts.transform.TransformAction
+import org.gradle.api.artifacts.transform.TransformOutputs
+import org.gradle.api.artifacts.transform.TransformParameters
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+import org.gradle.api.attributes.Attribute
+import org.gradle.api.file.FileSystemLocation
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+
+import java.nio.charset.StandardCharsets
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+
+/**
+ * Experimental adapter-preserving R8 optimization for the Persie0 fork.
+ *
+ * This does not remove any dependency or mediation adapter. It only rewrites
+ * two demonstrably over-broad consumer rules while Gradle resolves AARs:
+ *
+ *  1. Mintegral: keep every class name (safe for Class.forName), but let R8
+ *     optimize and remove unused members. Member names that remain are kept.
+ *  2. BidMachine protobuf: keep every class/member, but allow obfuscation.
+ *
+ * Disable with:
+ *   -Pappodeal.r8OptimizedConsumerRules=false
+ */
+@CacheableTransform
+abstract class AppodealR8ConsumerRulesTransform
+        implements TransformAction<TransformParameters.None> {
+
+    @InputArtifact
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract Provider<FileSystemLocation> getInputArtifact()
+
+    private static boolean isConsumerRulesEntry(String name) {
+        return name == 'proguard.txt' ||
+                name == 'consumer-rules.pro' ||
+                name.startsWith('META-INF/proguard/')
+    }
+
+    private static String normalized(String line) {
+        return line.trim().replaceAll(/\s+/, ' ')
+    }
+
+    private static String patchRules(String original) {
+        def patched = []
+        original.readLines().each { line ->
+            def rule = normalized(line)
+
+            // Mintegral publishes this blanket rule through multiple mediation
+            // adapters. Preserve all class identities, but do not pin every
+            // field/method against optimization and shrinking.
+            if (rule == '-keep class com.mbridge.** {*;}' ||
+                    rule == '-keep class com.mbridge.** { *; }') {
+                patched << '# Appodeal Flutter fork: narrowed Mintegral blanket keep rule'
+                patched << '-keep,allowoptimization class com.mbridge.**'
+                patched << '-keepclassmembernames,allowoptimization class com.mbridge.** { *; }'
+                return
+            }
+
+            // The interface rule is fully subsumed by the original class-wide
+            // rule. Keeping it would re-pin interface members after narrowing.
+            if (rule == '-keep interface com.mbridge.** {*;}' ||
+                    rule == '-keep interface com.mbridge.** { *; }') {
+                patched << '# Appodeal Flutter fork: interface members covered by narrowed Mintegral rules above'
+                return
+            }
+
+            // Generated protobuf code is still retained exactly as before.
+            // R8 may only rename it; references are rewritten consistently.
+            if (rule == '-keep class io.bidmachine.protobuf.** { *; }' ||
+                    rule == '-keep class io.bidmachine.protobuf.** {*;}') {
+                patched << '# Appodeal Flutter fork: BidMachine protobuf may be obfuscated'
+                patched << '-keep,allowobfuscation class io.bidmachine.protobuf.** { *; }'
+                return
+            }
+
+            patched << line
+        }
+        return patched.join(System.lineSeparator()) + System.lineSeparator()
+    }
+
+    @Override
+    void transform(TransformOutputs outputs) {
+        File input = inputArtifact.get().asFile
+        File output = outputs.file(input.name)
+
+        if (!input.name.endsWith('.aar')) {
+            output.bytes = input.bytes
+            return
+        }
+
+        new ZipFile(input).withCloseable { zip ->
+            new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(output))).withCloseable { out ->
+                zip.entries().each { entry ->
+                    def next = new ZipEntry(entry.name)
+                    if (entry.time >= 0) {
+                        next.time = entry.time
+                    }
+                    out.putNextEntry(next)
+                    if (!entry.isDirectory()) {
+                        byte[] bytes = zip.getInputStream(entry).bytes
+                        if (isConsumerRulesEntry(entry.name)) {
+                            String text = new String(bytes, StandardCharsets.UTF_8)
+                            bytes = patchRules(text).getBytes(StandardCharsets.UTF_8)
+                        }
+                        out.write(bytes)
+                    }
+                    out.closeEntry()
+                }
+            }
+        }
+    }
+}
+
+def appodealR8RulesEnabled = providers
+        .gradleProperty('appodeal.r8OptimizedConsumerRules')
+        .map { it.toBoolean() }
+        .orElse(true)
+        .get()
+
+if (appodealR8RulesEnabled) {
+    def artifactType = ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE
+    def optimizedRules = Attribute.of(
+            'com.appodeal.flutter.r8-optimized-consumer-rules',
+            Boolean
+    )
+
+    dependencies {
+        attributesSchema {
+            attribute(optimizedRules)
+        }
+
+        artifactTypes {
+            maybeCreate('aar').attributes.attribute(optimizedRules, false)
+        }
+
+        registerTransform(AppodealR8ConsumerRulesTransform) {
+            from.attribute(artifactType, 'aar')
+                    .attribute(optimizedRules, false)
+            to.attribute(artifactType, 'aar')
+                    .attribute(optimizedRules, true)
+        }
+    }
+
+    // AGP derives compile/runtime artifacts and consumer rules from resolvable
+    // configurations. Requesting the extra attribute makes Gradle feed AGP the
+    // patched AAR while preserving the module metadata and transitive graph.
+    configurations.configureEach { configuration ->
+        if (configuration.canBeResolved) {
+            configuration.attributes.attribute(optimizedRules, true)
+        }
+    }
+
+    logger.lifecycle('[Appodeal Flutter] Adapter-preserving R8 consumer-rule optimization enabled')
+}
