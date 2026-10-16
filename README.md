@@ -53,7 +53,7 @@ Add the dependency to the `pubspec.yaml` file in your project:
 
 ```yaml
 dependencies:
-  stack_appodeal_flutter: 4.3.0
+  stack_appodeal_flutter: 4.3.1
 ```
 
 Install the plugin by running the command below in the terminal:
@@ -135,7 +135,7 @@ def appodeal
     pod 'AppodealFacebookAdapter', '18.0.3.0'
     pod 'AppodealFirebaseAdapter', '12.15.0.1'
     pod 'AppodealGoogleAdMobAdapter', '13.5.0.0'
-    pod 'AppodealIABAdapter', '3.5.2.0'
+    pod 'AppodealIABAdapter', '4.4.0.0'
     pod 'AppodealInMobiAdapter', '11.3.0.0'
     pod 'AppodealIronSourceAdapter', '9.4.0.0.0'
     pod 'AppodealLevelPlayAdapter', '9.4.0.0.0'
@@ -168,7 +168,6 @@ def appodeal
     pod 'AppLovinMediationVerveAdapter', '3.7.0.0'
     pod 'AppLovinMediationVungleAdapter', '7.7.3.0'
     pod 'AppLovinMediationYandexAdapter', '7.18.4.0'
-    pod 'TaurusxAdsSDK', '1.9.2'
     pod 'TaurusxAdsSDK/AppLovinAdapter', '1.9.2'
     pod 'zMaticooMAXAdapter', '2.2.0'
 end
@@ -362,7 +361,7 @@ dependencies {
     implementation "com.appodeal.ads.sdk.adapters:dt_exchange:8.4.6.0"
     implementation "com.appodeal.ads.sdk.adapters:facebook_analytics:18.3.0.0"
     implementation "com.appodeal.ads.sdk.adapters:firebase:23.2.0.0"
-    implementation "com.appodeal.ads.sdk.adapters:iab:1.8.1.0"
+    implementation "com.appodeal.ads.sdk.adapters:iab:1.8.1.1"
     implementation "com.appodeal.ads.sdk.adapters:inmobi:11.3.0.0"
     implementation "com.appodeal.ads.sdk.adapters:ironsource:9.4.4.0"
     implementation "com.appodeal.ads.sdk.adapters:level_play:9.4.4.0"
@@ -608,6 +607,29 @@ Appodeal.setChildDirectedTreatment(false); //default - false
 // Disable network for specific ad type
 Appodeal.disableNetwork("admob");
 Appodeal.disableNetwork("admob", AppodealAdType.Interstitial);
+```
+
+* Custom endpoint
+
+In some regions the default Appodeal endpoint may be unreachable. Starting from Appodeal SDK
+4.1.0 you can override it with a custom endpoint URL provided by Appodeal support (do not set
+arbitrary URLs). `setEndpoint` must be called before `Appodeal.initialize`, a call made after
+initialization is ignored. `getEndpoint` returns the currently active endpoint and is meant for
+debugging. See the [Custom SDK Endpoint](https://docs.appodeal.com/faq-and-troubleshooting/troubleshooting/general/custom-endpoint)
+guide for details, including how to deliver the URL via a remote config.
+
+```dart
+// Set custom endpoint before initialization
+await Appodeal.setEndpoint("https://provided-endpoint.example.com");
+
+// Initialize SDK as usual
+Appodeal.initialize(
+    appKey: "YOUR_APPODEAL_APP_KEY",
+    adTypes: [AppodealAdType.Interstitial],
+    onInitializationFinished: (errors) => {});
+
+// Verify the current endpoint (optional)
+final endpoint = await Appodeal.getEndpoint();
 ```
 
 * Segments and targeting.
