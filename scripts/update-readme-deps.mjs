@@ -23,27 +23,20 @@ const README = join(ROOT, 'README.md');
 const CATEGORY_NETWORK = 2;
 const CATEGORY_SERVICE = 3;
 
-/**
- * Read the native Appodeal SDK version the plugin binds to. The Wizard API is keyed by
- * the native SDK version, not by the plugin version in pubspec.yaml (a plugin patch
- * release such as 4.3.1 can ship on native SDK 4.3.0). Both platform manifests must agree.
+/** Read native Android and iOS SDK versions independently.
+ * The Flutter fork may update its Android SDK before its iOS SDK.
+ * The Wizard API is keyed by the native platform's SDK version, not pubspec.yaml.
  */
-async function getVersion() {
+async function getVersions() {
   const gradle = await readFile(join(ROOT, 'android', 'build.gradle'), 'utf8');
-  const android = gradle.match(/com\.appodeal\.ads\.sdk:core:([^'"]+)/);
+  const android = gradle.match(/com\\.appodeal\\.ads\\.sdk:core:([^'"]+)/);
   if (!android) throw new Error('android/build.gradle has no com.appodeal.ads.sdk:core dependency');
 
   const podspec = await readFile(join(ROOT, 'ios', 'stack_appodeal_flutter.podspec'), 'utf8');
-  const ios = podspec.match(/s\.dependency\s+["']Appodeal["'],\s*["']([^"']+)["']/);
+  const ios = podspec.match(/s\\.dependency\\s+["']Appodeal["'],\\s*["']([^"']+)["']/);
   if (!ios) throw new Error('ios/stack_appodeal_flutter.podspec has no Appodeal dependency');
 
-  if (android[1] !== ios[1]) {
-    throw new Error(
-      `Native SDK version mismatch: android/build.gradle has ${android[1]}, ` +
-        `ios/stack_appodeal_flutter.podspec has ${ios[1]}`
-    );
-  }
-  return android[1];
+  return { android: android[1], ios: ios[1] };
 }
 
 async function apiFetch(path, options = {}) {
@@ -154,13 +147,13 @@ function replaceBetweenMarkers(readme, name, block) {
 }
 
 async function main() {
-  const version = await getVersion();
-  console.log(`Updating README dependency lists for native Appodeal SDK ${version}`);
+  const versions = await getVersions();
+  console.log(`Updating README dependencies for Android ${versions.android} and iOS ${versions.ios}`);
 
   // android uses the Groovy DSL (matches the README's `build.gradle` / groovy fence); ios
   // ignores the language, returns Ruby, and gets the Flutter linking injected into its target.
-  const android = androidDependenciesOnly(await fetchDependencyBlock('android', version, 'groovy'));
-  const ios = addFlutterLinking(await fetchDependencyBlock('ios', version));
+  const android = androidDependenciesOnly(await fetchDependencyBlock('android', versions.android, 'groovy'));
+  const ios = addFlutterLinking(await fetchDependencyBlock('ios', versions.ios));
 
   let readme = await readFile(README, 'utf8');
   readme = replaceBetweenMarkers(readme, 'android', fenced('``` groovy', android));
