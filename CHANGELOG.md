@@ -1,5 +1,12 @@
 # Changelog
 
+## Persie0 fork — Android SDK upgrade (2026-10-16)
+
+- Upgrade embedded Appodeal Android SDK from 4.3.0 to 4.4.0 and IAB mediation adapter from 1.8.1.0 to 1.8.1.1.
+- Android/Kotlin hosts need Kotlin Gradle Plugin >= 2.2.0 (Appodeal 4.4.0 compiled with Kotlin 2.3.0).
+- Keep Appodeal iOS SDK at 4.3.0; native SDK versions are resolved independently for README generation.
+- Preserve the fork's adapter-preserving R8 optimization and upstream Flutter 4.3.1 APIs.
+
 ## 4.3.1
 
 - **Added `Appodeal.setEndpoint(String)` / `Appodeal.getEndpoint()`**: overrides the default Appodeal SDK endpoint with a custom URL provided by Appodeal support (native SDK custom endpoint API). Must be called before `Appodeal.initialize`
