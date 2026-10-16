@@ -62,9 +62,9 @@ plugins.withId('org.jetbrains.kotlin.android') {
 }
 
 dependencies {
-    // Appodeal SDK 4.3.0
-    implementation 'com.appodeal.ads.sdk:core:4.3.0'
-    implementation 'com.appodeal.ads.sdk.adapters:iab:1.8.1.0'
+    // Appodeal Android SDK 4.4.0 (requires host Kotlin Gradle Plugin >= 2.2.0)
+    implementation 'com.appodeal.ads.sdk:core:4.4.0'
+    implementation 'com.appodeal.ads.sdk.adapters:iab:1.8.1.1'
 }
 
 
