@@ -2,7 +2,7 @@
 
 Official Appodeal Flutter Plugin for your Flutter application.
 
-## Appodeal SDK 4.3.0
+## Appodeal Android SDK 4.4.0 / iOS SDK 4.3.0
 
 - **Google CMP and TCF v2 Support**
   - To enhance the relevance of ads for your users and comply with regulations like GDPR and CCPA,
@@ -273,6 +273,7 @@ Add only the keys you need — see the notes above.
 
 > [!IMPORTANT]
 > - Android API level 24 (Android OS 7.0) or higher.
+> - Android SDK 4.4.0 requires Kotlin Gradle Plugin 2.2.0 or newer for Kotlin-based hosts. Use the compatible Kotlin version from your Flutter/AGP toolchain; don't apply the Kotlin plugin twice.
 
 1. Add Appodeal adapters.
 
@@ -281,7 +282,7 @@ Add dependencies into `build.gradle` (module: app)
 <!-- appodeal-deps:android:start -->
 ``` groovy
 dependencies {
-    implementation "com.appodeal.ads.sdk:core:4.3.0"
+    implementation "com.appodeal.ads.sdk:core:4.4.0"
     // BidMachine
     implementation "io.bidmachine:ads.networks.amazon:12.0.0.0"
     implementation "io.bidmachine:ads.networks.meta_audience:6.21.0.1"
