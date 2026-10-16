@@ -29,11 +29,11 @@ const CATEGORY_SERVICE = 3;
  */
 async function getVersions() {
   const gradle = await readFile(join(ROOT, 'android', 'build.gradle'), 'utf8');
-  const android = gradle.match(/com\\.appodeal\\.ads\\.sdk:core:([^'"]+)/);
+  const android = gradle.match(/com\.appodeal\.ads\.sdk:core:([^'"]+)/);
   if (!android) throw new Error('android/build.gradle has no com.appodeal.ads.sdk:core dependency');
 
   const podspec = await readFile(join(ROOT, 'ios', 'stack_appodeal_flutter.podspec'), 'utf8');
-  const ios = podspec.match(/s\\.dependency\\s+["']Appodeal["'],\\s*["']([^"']+)["']/);
+  const ios = podspec.match(/s\.dependency\s+["']Appodeal["'],\s*["']([^"']+)["']/);
   if (!ios) throw new Error('ios/stack_appodeal_flutter.podspec has no Appodeal dependency');
 
   return { android: android[1], ios: ios[1] };
